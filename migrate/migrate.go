@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+
+	"github.com/joeshaw/envdecode"
 	"github.com/porter-dev/porter-agent/internal/adapter"
 	"github.com/porter-dev/porter-agent/internal/envconf"
 	"github.com/porter-dev/porter-agent/internal/logger"
@@ -9,6 +12,12 @@ import (
 
 func main() {
 	envDecoderConf := envconf.EnvDecoderConf{}
+
+	if err := envdecode.StrictDecode(&envDecoderConf); err != nil {
+		logger.NewErrorConsole(true).Fatal().Caller().Msgf("could not decode env conf: %v", err)
+		os.Exit(1)
+	}
+
 	l := logger.NewConsole(envDecoderConf.Debug)
 	db, err := adapter.New(&envDecoderConf.DBConf)
 
