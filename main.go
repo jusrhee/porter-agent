@@ -18,7 +18,6 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/render"
 	"github.com/porter-dev/porter-agent/internal/envconf"
-	"github.com/porter-dev/porter-agent/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joeshaw/envdecode"
@@ -69,10 +68,6 @@ func main() {
 		l.Fatal().Caller().Msgf("could not create database connection: %v", err)
 	}
 
-	if err := repository.AutoMigrate(db, false); err != nil {
-		l.Fatal().Caller().Msgf("auto migration failed: %v", err)
-	}
-
 	var logStore logstore.LogStore
 	var logStoreKind string
 	if envDecoderConf.LogStoreConf.LogStoreKind == "memory" {
@@ -92,9 +87,6 @@ func main() {
 	}
 
 	repo := repository.NewRepository(db)
-
-	cleanupEvent(repo, l)
-	cleanupEventCache(repo, l)
 
 	alerter := &alerter.Alerter{
 		Client:     client,
@@ -185,14 +177,14 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(time.Hour)
-			cleanupEvent(repo, l)
+			repo.Event.DeleteOlderEvents(l)
 		}
 	}()
 
 	go func() {
 		for {
 			time.Sleep(time.Hour)
-			cleanupEventCache(repo, l)
+			repo.EventCache.DeleteOlderEventCaches(l)
 		}
 	}()
 
@@ -224,35 +216,5 @@ func main() {
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", envDecoderConf.ServerPort), r); err != nil {
 		l.Error().Caller().Msgf("error starting API server: %v", err)
-	}
-}
-
-func cleanupEvent(repo *repository.Repository, l *logger.Logger) {
-	err := repo.Event.DeleteOlderEvents()
-
-	if err != nil {
-		l.Error().Caller().Msgf("error deleting old events: %v", err)
-	}
-}
-
-func cleanupEventCache(repo *repository.Repository, l *logger.Logger) {
-	l.Info().Caller().Msgf("cleaning up old event caches")
-
-	var olderCache []*models.EventCache
-
-	if err := repo.DB.Model(&models.EventCache{}).Where("timestamp <= ?", time.Now().Add(-time.Hour)).Find(&olderCache).Error; err == nil {
-		numDeleted := 0
-
-		for _, cache := range olderCache {
-			// use GORM's Unscoped().Delete() to permanently delete the row from the DB
-			if err := repo.DB.Unscoped().Delete(cache).Error; err != nil {
-				l.Error().Caller().Msgf("error deleting old event cache with ID: %d. Error: %v\n", cache.ID, err)
-				numDeleted++
-			}
-		}
-
-		l.Info().Caller().Msgf("deleted %d event cache objects from database", numDeleted)
-	} else {
-		l.Error().Caller().Msgf("error querying for older event cache DB entries: %v\n", err)
 	}
 }

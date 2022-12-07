@@ -15,6 +15,7 @@ COPY /api ./api
 COPY /cli ./cli
 COPY /internal ./internal
 COPY /pkg ./pkg
+COPY /migrate ./migrate
 
 
 # Go build environment
@@ -26,6 +27,7 @@ ARG version=production
 
 RUN go build -a -o ./bin/agent .
 RUN go build -a -o ./bin/agent-cli ./cli
+RUN go build -a -o ./bin/migrate ./migrate
 
 # Deployment environment
 # ----------------------
@@ -34,6 +36,7 @@ RUN apk update && apk add --no-cache curl
 
 COPY --from=build-go /porter/bin/agent /porter/
 COPY --from=build-go /porter/bin/agent-cli /porter/
+COPY --from=build-go /porter/bin/migrate /porter/
 
 ENV SERVER_PORT=10001
 ENV SERVER_TIMEOUT_READ=5s
@@ -41,4 +44,4 @@ ENV SERVER_TIMEOUT_WRITE=10s
 ENV SERVER_TIMEOUT_IDLE=15s
 
 EXPOSE 10001
-CMD /porter/agent
+CMD /porter/migrate && /porter/agent

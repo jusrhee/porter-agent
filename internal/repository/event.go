@@ -1,10 +1,9 @@
 package repository
 
 import (
-	"fmt"
-	"log"
 	"sync"
 
+	"github.com/porter-dev/porter-agent/internal/logger"
 	"github.com/porter-dev/porter-agent/internal/models"
 	"github.com/porter-dev/porter-agent/internal/utils"
 	"gorm.io/gorm"
@@ -99,11 +98,12 @@ type ReleaseInfo struct {
 	ReleaseNamespace string
 }
 
-func (r *EventRepository) DeleteOlderEvents() error {
+func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 	var distinctReleases []ReleaseInfo
 
 	if err := r.db.Model(&models.Event{}).Distinct().Find(&distinctReleases).Error; err != nil {
-		return fmt.Errorf("error fetching distinct release name, namespace pairs: %w", err)
+		l.Error().Caller().Msgf("error fetching distinct release name, namespace pairs: %w", err)
+		return
 	}
 
 	var wg sync.WaitGroup
@@ -120,7 +120,7 @@ func (r *EventRepository) DeleteOlderEvents() error {
 			if err := r.db.Model(&models.Event{}).
 				Where("release_name = ? AND release_namespace = ?", info.ReleaseName, info.ReleaseNamespace).
 				Count(&count).Error; err != nil {
-				log.Printf("error counting events for release %s, namespace %s: %v",
+				l.Error().Caller().Msgf("error counting events for release %s, namespace %s: %v",
 					info.ReleaseName, info.ReleaseNamespace, err)
 				return
 			}
@@ -129,7 +129,7 @@ func (r *EventRepository) DeleteOlderEvents() error {
 				return
 			}
 
-			log.Printf("deleting older events for release %s, namespace %s", info.ReleaseName, info.ReleaseNamespace)
+			l.Info().Caller().Msgf("deleting older events for release %s, namespace %s", info.ReleaseName, info.ReleaseNamespace)
 
 			for i := 1; i < (int(count)/maxEvents)+1; i++ {
 				var events []*models.Event
@@ -141,7 +141,7 @@ func (r *EventRepository) DeleteOlderEvents() error {
 					Offset(i * maxEvents).
 					Find(&events).
 					Error; err != nil {
-					log.Printf("error fetching events for release %s, namespace %s: %v",
+					l.Error().Caller().Msgf("error fetching events for release %s, namespace %s: %v",
 						info.ReleaseName, info.ReleaseNamespace, err)
 					continue
 				}
@@ -149,7 +149,7 @@ func (r *EventRepository) DeleteOlderEvents() error {
 				for _, ev := range events {
 					// use GORM's Unscoped().Delete() to permanently delete the row from the DB
 					if err := r.db.Unscoped().Delete(ev).Error; err != nil {
-						log.Printf("error deleting event %d for release %s, namespace %s: %v",
+						l.Error().Caller().Msgf("error deleting event %d for release %s, namespace %s: %v",
 							ev.ID, info.ReleaseName, info.ReleaseNamespace, err)
 					}
 				}
@@ -158,6 +158,4 @@ func (r *EventRepository) DeleteOlderEvents() error {
 	}
 
 	wg.Wait()
-
-	return nil
 }

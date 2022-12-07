@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/porter-dev/porter-agent/internal/logger"
 	"github.com/porter-dev/porter-agent/internal/models"
 	"github.com/porter-dev/porter-agent/internal/utils"
 )
@@ -38,12 +39,10 @@ func TestDeleteOlderEvents(t *testing.T) {
 		}
 	}
 
-	// delete older events
-	err := tester.repo.Event.DeleteOlderEvents()
+	l := logger.NewConsole(false)
 
-	if err != nil {
-		t.Fatalf("Expected no error after deleting older events, got %v", err)
-	}
+	// delete older events
+	tester.repo.Event.DeleteOlderEvents(l)
 
 	// check that there are 100 events for each release name, namespace pair
 	for i := 0; i < 10; i++ {
