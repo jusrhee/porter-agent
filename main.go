@@ -92,6 +92,7 @@ func main() {
 		l.Fatal().Caller().Msgf("%s-based log store setup failed: %v", logStoreKind, err)
 	}
 
+	go cleanupEvent(db, l)
 	go cleanupEventCache(db, l)
 
 	repo := repository.NewRepository(db)
@@ -210,6 +211,18 @@ func main() {
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", envDecoderConf.ServerPort), r); err != nil {
 		l.Error().Caller().Msgf("error starting API server: %v", err)
+	}
+}
+
+func cleanupEvent(db *gorm.DB, l *logger.Logger) {
+	for {
+		err := repository.NewEventRepository(db).DeleteOlderEvents()
+
+		if err != nil {
+			l.Error().Caller().Msgf("error deleting old events: %v", err)
+		}
+
+		time.Sleep(time.Hour)
 	}
 }
 
