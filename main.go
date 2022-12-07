@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -92,10 +91,10 @@ func main() {
 		l.Fatal().Caller().Msgf("%s-based log store setup failed: %v", logStoreKind, err)
 	}
 
-	go cleanupEvent(db, l)
-	go cleanupEventCache(db, l)
-
 	repo := repository.NewRepository(db)
+
+	cleanupEvent(repo, l)
+	cleanupEventCache(repo, l)
 
 	alerter := &alerter.Alerter{
 		Client:     client,
@@ -183,6 +182,20 @@ func main() {
 		l.Fatal().Caller().Msgf("server config loading failed: %v", err)
 	}
 
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			cleanupEvent(repo, l)
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			cleanupEventCache(repo, l)
+		}
+	}()
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -214,40 +227,32 @@ func main() {
 	}
 }
 
-func cleanupEvent(db *gorm.DB, l *logger.Logger) {
-	for {
-		err := repository.NewEventRepository(db).DeleteOlderEvents()
+func cleanupEvent(repo *repository.Repository, l *logger.Logger) {
+	err := repo.Event.DeleteOlderEvents()
 
-		if err != nil {
-			l.Error().Caller().Msgf("error deleting old events: %v", err)
-		}
-
-		time.Sleep(time.Hour)
+	if err != nil {
+		l.Error().Caller().Msgf("error deleting old events: %v", err)
 	}
 }
 
-func cleanupEventCache(db *gorm.DB, l *logger.Logger) {
-	for {
-		l.Info().Caller().Msgf("cleaning up old event caches")
+func cleanupEventCache(repo *repository.Repository, l *logger.Logger) {
+	l.Info().Caller().Msgf("cleaning up old event caches")
 
-		var olderCache []*models.EventCache
+	var olderCache []*models.EventCache
 
-		if err := db.Model(&models.EventCache{}).Where("timestamp <= ?", time.Now().Add(-time.Hour)).Find(&olderCache).Error; err == nil {
-			numDeleted := 0
+	if err := repo.DB.Model(&models.EventCache{}).Where("timestamp <= ?", time.Now().Add(-time.Hour)).Find(&olderCache).Error; err == nil {
+		numDeleted := 0
 
-			for _, cache := range olderCache {
-				// use GORM's Unscoped().Delete() to permanently delete the row from the DB
-				if err := db.Unscoped().Delete(cache).Error; err != nil {
-					l.Error().Caller().Msgf("error deleting old event cache with ID: %d. Error: %v\n", cache.ID, err)
-					numDeleted++
-				}
+		for _, cache := range olderCache {
+			// use GORM's Unscoped().Delete() to permanently delete the row from the DB
+			if err := repo.DB.Unscoped().Delete(cache).Error; err != nil {
+				l.Error().Caller().Msgf("error deleting old event cache with ID: %d. Error: %v\n", cache.ID, err)
+				numDeleted++
 			}
-
-			l.Info().Caller().Msgf("deleted %d event cache objects from database", numDeleted)
-		} else {
-			l.Error().Caller().Msgf("error querying for older event cache DB entries: %v\n", err)
 		}
 
-		time.Sleep(time.Hour)
+		l.Info().Caller().Msgf("deleted %d event cache objects from database", numDeleted)
+	} else {
+		l.Error().Caller().Msgf("error querying for older event cache DB entries: %v\n", err)
 	}
 }
