@@ -147,7 +147,8 @@ func (r *EventRepository) DeleteOlderEvents() error {
 				}
 
 				for _, ev := range events {
-					if err := r.db.Delete(ev).Error; err != nil {
+					// use GORM's Unscoped().Delete() to permanently delete the row from the DB
+					if err := r.db.Unscoped().Delete(ev).Error; err != nil {
 						log.Printf("error deleting event %d for release %s, namespace %s: %v",
 							ev.ID, info.ReleaseName, info.ReleaseNamespace, err)
 					}

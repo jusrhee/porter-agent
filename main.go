@@ -236,7 +236,8 @@ func cleanupEventCache(db *gorm.DB, l *logger.Logger) {
 			numDeleted := 0
 
 			for _, cache := range olderCache {
-				if err := db.Delete(cache).Error; err != nil {
+				// use GORM's Unscoped().Delete() to permanently delete the row from the DB
+				if err := db.Unscoped().Delete(cache).Error; err != nil {
 					l.Error().Caller().Msgf("error deleting old event cache with ID: %d. Error: %v\n", cache.ID, err)
 					numDeleted++
 				}
