@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -19,7 +18,6 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/render"
 	"github.com/porter-dev/porter-agent/internal/envconf"
-	"github.com/porter-dev/porter-agent/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joeshaw/envdecode"
@@ -70,10 +68,6 @@ func main() {
 		l.Fatal().Caller().Msgf("could not create database connection: %v", err)
 	}
 
-	if err := repository.AutoMigrate(db, false); err != nil {
-		l.Fatal().Caller().Msgf("auto migration failed: %v", err)
-	}
-
 	var logStore logstore.LogStore
 	var logStoreKind string
 	if envDecoderConf.LogStoreConf.LogStoreKind == "memory" {
@@ -91,8 +85,6 @@ func main() {
 	if err != nil {
 		l.Fatal().Caller().Msgf("%s-based log store setup failed: %v", logStoreKind, err)
 	}
-
-	go cleanupEventCache(db, l)
 
 	repo := repository.NewRepository(db)
 
@@ -182,6 +174,20 @@ func main() {
 		l.Fatal().Caller().Msgf("server config loading failed: %v", err)
 	}
 
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			repo.Event.DeleteOlderEvents(l)
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			repo.EventCache.DeleteOlderEventCaches(l)
+		}
+	}()
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -210,30 +216,5 @@ func main() {
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", envDecoderConf.ServerPort), r); err != nil {
 		l.Error().Caller().Msgf("error starting API server: %v", err)
-	}
-}
-
-func cleanupEventCache(db *gorm.DB, l *logger.Logger) {
-	for {
-		l.Info().Caller().Msgf("cleaning up old event caches")
-
-		var olderCache []*models.EventCache
-
-		if err := db.Model(&models.EventCache{}).Where("timestamp <= ?", time.Now().Add(-time.Hour)).Find(&olderCache).Error; err == nil {
-			numDeleted := 0
-
-			for _, cache := range olderCache {
-				if err := db.Delete(cache).Error; err != nil {
-					l.Error().Caller().Msgf("error deleting old event cache with ID: %d. Error: %v\n", cache.ID, err)
-					numDeleted++
-				}
-			}
-
-			l.Info().Caller().Msgf("deleted %d event cache objects from database", numDeleted)
-		} else {
-			l.Error().Caller().Msgf("error querying for older event cache DB entries: %v\n", err)
-		}
-
-		time.Sleep(time.Hour)
 	}
 }

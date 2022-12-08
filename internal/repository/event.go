@@ -1,6 +1,9 @@
 package repository
 
 import (
+	"sync"
+
+	"github.com/porter-dev/porter-agent/internal/logger"
 	"github.com/porter-dev/porter-agent/internal/models"
 	"github.com/porter-dev/porter-agent/internal/utils"
 	"gorm.io/gorm"
@@ -88,4 +91,39 @@ func (r *EventRepository) DeleteEvent(uid string) error {
 	}
 
 	return nil
+}
+
+type ReleaseInfo struct {
+	ReleaseName      string
+	ReleaseNamespace string
+}
+
+func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
+	l.Info().Caller().Msgf("cleaning up old events")
+
+	var distinctReleases []ReleaseInfo
+
+	if err := r.db.Model(&models.Event{}).Distinct().Find(&distinctReleases).Error; err != nil {
+		l.Error().Caller().Msgf("error fetching distinct release name, namespace pairs: %w", err)
+		return
+	}
+
+	var wg sync.WaitGroup
+
+	for _, info := range distinctReleases {
+		wg.Add(1)
+
+		go func(info ReleaseInfo) {
+			defer wg.Done()
+
+			if err := r.db.Exec(`DELETE FROM events WHERE (release_name = ? AND release_namespace = ?) AND id NOT IN (SELECT id FROM events e2 WHERE (e2.release_name = ? AND e2.release_namespace = ?) ORDER BY e2.timestamp desc LIMIT 100)`, info.ReleaseName, info.ReleaseNamespace, info.ReleaseName, info.ReleaseNamespace).Error; err != nil {
+				l.Error().Caller().Msgf("error deleting older events for release %s, namespace %s: %v",
+					info.ReleaseName, info.ReleaseNamespace, err)
+			}
+		}(info)
+	}
+
+	wg.Wait()
+
+	l.Info().Caller().Msgf("finished cleaning up old events")
 }
