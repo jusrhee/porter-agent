@@ -107,7 +107,7 @@ func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 	}
 
 	var wg sync.WaitGroup
-	maxEvents := 100
+	// maxEvents := 100
 
 	for _, info := range distinctReleases {
 		wg.Add(1)
@@ -115,44 +115,9 @@ func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 		go func(info ReleaseInfo) {
 			defer wg.Done()
 
-			var count int64
-
-			if err := r.db.Model(&models.Event{}).
-				Where("release_name = ? AND release_namespace = ?", info.ReleaseName, info.ReleaseNamespace).
-				Count(&count).Error; err != nil {
-				l.Error().Caller().Msgf("error counting events for release %s, namespace %s: %v",
+			if err := r.db.Exec(`delete from events where id in(select id from (select id, release_name, release_namespace, row_number() over (partition by release_name, release_namespace order by timestamp desc) as rank from events ORDER BY timestamp desc) where rank > 100);`).Error; err != nil {
+				l.Error().Caller().Msgf("error deleting older events for release %s, namespace %s: %v",
 					info.ReleaseName, info.ReleaseNamespace, err)
-				return
-			}
-
-			if count <= int64(maxEvents) {
-				return
-			}
-
-			l.Info().Caller().Msgf("deleting older events for release %s, namespace %s", info.ReleaseName, info.ReleaseNamespace)
-
-			for i := 1; i < (int(count)/maxEvents)+1; i++ {
-				var events []*models.Event
-
-				if err := r.db.Model(&models.Event{}).
-					Where("release_name = ? AND release_namespace = ?", info.ReleaseName, info.ReleaseNamespace).
-					Order("timestamp DESC").
-					Limit(maxEvents).
-					Offset(i * maxEvents).
-					Find(&events).
-					Error; err != nil {
-					l.Error().Caller().Msgf("error fetching events for release %s, namespace %s: %v",
-						info.ReleaseName, info.ReleaseNamespace, err)
-					continue
-				}
-
-				for _, ev := range events {
-					// use GORM's Unscoped().Delete() to permanently delete the row from the DB
-					if err := r.db.Unscoped().Delete(ev).Error; err != nil {
-						l.Error().Caller().Msgf("error deleting event %d for release %s, namespace %s: %v",
-							ev.ID, info.ReleaseName, info.ReleaseNamespace, err)
-					}
-				}
 			}
 		}(info)
 	}

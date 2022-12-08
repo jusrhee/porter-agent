@@ -61,5 +61,13 @@ func TestDeleteOlderEvents(t *testing.T) {
 		if len(events) != 100 {
 			t.Fatalf("Expected 100 events for release %s, namespace %s, got %d", name, namespace, len(events))
 		}
+
+		// check that the most recent 100 events are the ones that still exist
+		for j := 0; j < 100; j++ {
+			if events[j].UniqueID != fmt.Sprintf("unique-id-%d-%d", i+1, j+101) {
+				t.Fatalf("Expected event with unique id unique-id-%d-%d to be the %dth event for release %s, namespace %s, got %s",
+					i+1, j+101, j+1, name, namespace, events[j].UniqueID)
+			}
+		}
 	}
 }
