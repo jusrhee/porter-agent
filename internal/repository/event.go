@@ -107,7 +107,6 @@ func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 	}
 
 	var wg sync.WaitGroup
-	// maxEvents := 100
 
 	for _, info := range distinctReleases {
 		wg.Add(1)
