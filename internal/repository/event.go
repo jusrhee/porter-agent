@@ -116,7 +116,7 @@ func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 		go func(info ReleaseInfo) {
 			defer wg.Done()
 
-			if err := r.db.Exec(`delete from events where id in(select id from (select id, release_name, release_namespace, row_number() over (partition by release_name, release_namespace order by timestamp desc) as rank from events ORDER BY timestamp desc) where rank > 100);`).Error; err != nil {
+			if err := r.db.Exec(`DELETE FROM events WHERE (release_name = ? AND release_namespace = ?) AND id NOT IN (SELECT id FROM events e2 WHERE (e2.release_name = ? AND e2.release_namespace = ?) ORDER BY e2.timestamp desc LIMIT 100)`, info.ReleaseName, info.ReleaseNamespace, info.ReleaseName, info.ReleaseNamespace).Error; err != nil {
 				l.Error().Caller().Msgf("error deleting older events for release %s, namespace %s: %v",
 					info.ReleaseName, info.ReleaseNamespace, err)
 			}
