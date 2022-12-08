@@ -99,6 +99,8 @@ type ReleaseInfo struct {
 }
 
 func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
+	l.Info().Caller().Msgf("cleaning up old events")
+
 	var distinctReleases []ReleaseInfo
 
 	if err := r.db.Model(&models.Event{}).Distinct().Find(&distinctReleases).Error; err != nil {
@@ -122,4 +124,6 @@ func (r *EventRepository) DeleteOlderEvents(l *logger.Logger) {
 	}
 
 	wg.Wait()
+
+	l.Info().Caller().Msgf("finished cleaning up old events")
 }
